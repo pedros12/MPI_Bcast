@@ -26,8 +26,10 @@
  */
 #include <stdio.h>
 #include <math.h>
+
 /* We'll be using MPI routines, definitions, etc. */
 #include <mpi.h>
+
 
 /* Get the input values */
 void Get_input(int my_rank, int comm_sz, double* a_p, double* b_p,
@@ -45,12 +47,9 @@ int main(void) {
    double a, b, h, local_a, local_b;
    double local_int, total_int;
    int source;
-   double starttime, endtime;
 
    /* Let the system do what it needs to start up MPI */
    MPI_Init(NULL, NULL);
-   // iniciar o tempo de execução
-   starttime = MPI_Wtime();
 
    /* Get my process rank */
    MPI_Comm_rank(MPI_COMM_WORLD, &my_rank);
@@ -71,26 +70,52 @@ int main(void) {
    local_int = Trap(local_a, local_b, local_n, h);
 
    /* Add up the integrals calculated by each process */
-   if (my_rank != 0)
-      MPI_Send(&local_int, 1, MPI_DOUBLE, 0, 0,
-            MPI_COMM_WORLD);
-   else {
-      total_int = local_int;
-      for (source = 1; source < comm_sz; source++) {
-         MPI_Recv(&local_int, 1, MPI_DOUBLE, source, 0,
-            MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-         total_int += local_int;
-      }
-   }
+   int div = 2;
 
+   int core_dif = 1;
+
+   int par;
+
+   total_int = local_int; // inicializa o total xom o valor local de cada core
+
+   while(div <= comm_sz && my_rank){
+	if(my_rank % div == 0){
+		par = my_rank + core_dif;
+		if(par < comm_sz){
+			MPI_Recv(&local_int, 1, MPI_DOUBLE, par, 0,
+			    MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+			 total_int += local_int;
+		}
+	}
+	else{
+		par = my_rank - core_dif;
+		MPI_Send(&total_int, 1, MPI_DOUBLE, par, 0, MPI_COMM_WORLD);
+		break;// se enviar o core não deve fazer mais nada
+	}	
+
+	div *= 2;
+	core_dif *= 2;
+
+   }
+   
+   /*
+	   if (my_rank != 0)
+	      MPI_Send(&local_int, 1, MPI_DOUBLE, 0, 0,
+		    MPI_COMM_WORLD);
+	   else {
+	      total_int = local_int;
+	      for (source = 1; source < comm_sz; source++) {
+		 MPI_Recv(&local_int, 1, MPI_DOUBLE, source, 0,
+		    MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+		 total_int += local_int;
+	      }
+	   }
+   */
    /* Print the result */
    if (my_rank == 0) {
       printf("With n = %d trapezoids, our estimate\n", n);
       printf("of the integral from %f to %f = %.15e\n",
           a, b, total_int);
-      // exibir tempo total do procedimento
-      endtime = MPI_Wtime();
-      printf("Tempo total: %f\n",endtime-starttime);
    }
 
    /* Shut down MPI */
@@ -111,84 +136,50 @@ int main(void) {
  */
 void Get_input(int my_rank, int comm_sz, double* a_p, double* b_p,
       int* n_p) {
-   int dest;
-   int i, j;
-   int flag = 0;
+   int i, c, divisor, core_difference;
+   double res;
 
-    if (my_rank == 0) {
+   res = log2(comm_sz);
+   c = ceil(res);//teto do
+   divisor = pow(2, c);//na primeira operação div >= comm_sz
+   core_difference = divisor/2;
 
-      FILE *myFile;
-	    myFile = fopen("input.txt", "r");
-	    fscanf(myFile, "%lf\n", a_p);
-	    fscanf(myFile, "%lf\n", b_p);
-	    fscanf(myFile, "%i\n", n_p);
-	    fclose(myFile);
+   if(my_rank == 0){
+       FILE *myFile;
+       myFile = fopen("input.txt", "r");
+       fscanf(myFile, "%lf\n", a_p);
+       fscanf(myFile, "%lf\n", b_p);
+       fscanf(myFile, "%i\n", n_p);
+       fclose(myFile);
 
-      printf("a_p %lf\n",*a_p );
-      printf("b_p %lf\n",*b_p );
-      printf("n_p %d\n",*n_p );
-        // cenário base: comm_sz = 8
-        int div = comm_sz/2;
-        for (i = 1; i <= log2(comm_sz); i++) { // executa por 3 vezes
-            // distribuir para os outros processos
-            // a partir do processo 0: 4 / 2 / 1
+       printf("a_p %lf\n",*a_p );
+       printf("b_p %lf\n",*b_p );
+       printf("n_p %d\n",*n_p );
+   }
 
-            MPI_Send(a_p, 1, MPI_DOUBLE, div, 0, MPI_COMM_WORLD);
-            MPI_Send(b_p, 1, MPI_DOUBLE, div, 0, MPI_COMM_WORLD);
-            MPI_Send(n_p, 1, MPI_INT, div, 0, MPI_COMM_WORLD);
-            div /= 2;
-	      }
-    } else { /* my_rank != 0 */
-          if(my_rank % 2 == 1){
-              MPI_Recv(a_p, 1, MPI_DOUBLE, my_rank-1, 0, MPI_COMM_WORLD,
-                        MPI_STATUS_IGNORE);
-              MPI_Recv(b_p, 1, MPI_DOUBLE, my_rank-1, 0, MPI_COMM_WORLD,
-                        MPI_STATUS_IGNORE);
-              MPI_Recv(n_p, 1, MPI_INT, my_rank-1, 0, MPI_COMM_WORLD,
-                        MPI_STATUS_IGNORE);
-              //printf("My_rank %d receving from %d = %d\n", my_rank , my_rank - 1, *n_p );;
-          }
-          else{
-              int div = comm_sz/2;
-              //div apenas multiplos de 2
-              printf("log 2 %lf\n",log2(comm_sz) % 2 );
-              for(i = log2(comm_sz)-1 ; i > 0  ; i--){
-                  if (my_rank % div == 0 && flag != 1) {
-                      MPI_Recv(a_p, 1, MPI_DOUBLE, my_rank - div, 0, MPI_COMM_WORLD,
-                                MPI_STATUS_IGNORE);
-                      MPI_Recv(b_p, 1, MPI_DOUBLE, my_rank - div, 0, MPI_COMM_WORLD,
-                                MPI_STATUS_IGNORE);
-                      MPI_Recv(n_p, 1, MPI_INT, my_rank - div, 0, MPI_COMM_WORLD,
-                                MPI_STATUS_IGNORE);
-                      if(my_rank + div/2 < comm_sz){
-                          //printf("My_rank %d receving from %d = %d\n",my_rank , my_rank - div, *n_p );
-                          //se o rank pertence ao nivel 2 dálf árvore ele irá enviar para 2 cores
-                          for (j = 0; j < i; j++) {
-                              div /= 2;
-                              MPI_Send(a_p, 1, MPI_DOUBLE, my_rank + div, 0, MPI_COMM_WORLD);
-                              MPI_Send(b_p, 1, MPI_DOUBLE, my_rank + div, 0, MPI_COMM_WORLD);
-                              MPI_Send(n_p, 1, MPI_INT, my_rank + div, 0, MPI_COMM_WORLD);
-                              if (my_rank + div*2 >= comm_sz-1) {
-                                  MPI_Send(a_p, 1, MPI_DOUBLE, my_rank + div*2, 0, MPI_COMM_WORLD);
-                                  MPI_Send(b_p, 1, MPI_DOUBLE, my_rank + div*2, 0, MPI_COMM_WORLD);
-                                  MPI_Send(n_p, 1, MPI_INT, my_rank + div*2, 0, MPI_COMM_WORLD);
-                              }
 
-                          }
-                      }
-                      flag = 1; // Core já recebeu e enviou
-                  }
-                  //evitar que um core com flag 1 faça divisão por 0
-                  else if (flag != 1){
-                      div /=2;
-                  }
-              }
-          }
-        }
-        printf("My_rank %d a_n = %lf b_n = %lf n_p = %d\n",my_rank, *a_p, *b_p, *n_p );
-        //se o rank pertence ao nivel 2 dá árvore ele irá enviar para 2 co
-    } // fim else
-  /* Get_input */
+   for(i = 0; i < c; i++){
+      if (my_rank == 0 || my_rank%divisor == 0) {
+         if(my_rank+core_difference < comm_sz){
+            MPI_Send(a_p, 1, MPI_DOUBLE, my_rank+core_difference, 0, MPI_COMM_WORLD);
+            MPI_Send(b_p, 1, MPI_DOUBLE, my_rank+core_difference, 0, MPI_COMM_WORLD);
+            MPI_Send(n_p, 1, MPI_INT, my_rank+core_difference, 0, MPI_COMM_WORLD);
+         }
+      } else if(my_rank%(divisor/2)==0) { /* my_rank != 0 */
+         MPI_Recv(a_p, 1, MPI_DOUBLE, my_rank-core_difference, 0, MPI_COMM_WORLD,
+               MPI_STATUS_IGNORE);
+         MPI_Recv(b_p, 1, MPI_DOUBLE, my_rank-core_difference, 0, MPI_COMM_WORLD,
+               MPI_STATUS_IGNORE);
+         MPI_Recv(n_p, 1, MPI_INT, my_rank-core_difference, 0, MPI_COMM_WORLD,
+               MPI_STATUS_IGNORE);
+      }
+      core_difference /=2;
+      divisor /=2;
+   }
+
+
+
+}  /* Get_input */
 
 /*------------------------------------------------------------------
  * Function:     Trap
