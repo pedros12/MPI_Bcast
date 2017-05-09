@@ -78,26 +78,27 @@ int main(void) {
 
    total_int = local_int; // inicializa o total xom o valor local de cada core
 
-   while(div <= comm_sz && my_rank){
-	if(my_rank % div == 0){
-		par = my_rank + core_dif;
-		if(par < comm_sz){
-			MPI_Recv(&local_int, 1, MPI_DOUBLE, par, 0,
-			    MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-			 total_int += local_int;
-		}
-	}
-	else{
-		par = my_rank - core_dif;
-		MPI_Send(&total_int, 1, MPI_DOUBLE, par, 0, MPI_COMM_WORLD);
-		break;// se enviar o core não deve fazer mais nada
-	}	
+   while(div <= comm_sz){
+	    if(my_rank % div == 0){
+		      par = my_rank + core_dif;
+		      if(par < comm_sz){
+			        MPI_Recv(&local_int, 1, MPI_DOUBLE, par, 0,
+			        MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+			        total_int += local_int;
+              //printf("core %d local int = %lf total_int = %lf\n", my_rank, local_int, total_int );
+		      }
+	    }
+	    else{
+		      par = my_rank - core_dif;
+		      MPI_Send(&total_int, 1, MPI_DOUBLE, par, 0, MPI_COMM_WORLD);
+		      break;// se enviar o core não deve fazer mais nada
+	    }
 
 	div *= 2;
 	core_dif *= 2;
 
-   }
-   
+  }
+
    /*
 	   if (my_rank != 0)
 	      MPI_Send(&local_int, 1, MPI_DOUBLE, 0, 0,
